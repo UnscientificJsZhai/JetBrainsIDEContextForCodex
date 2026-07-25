@@ -86,6 +86,23 @@ class LengthPrefixedJsonCodecTest {
     }
 
     @Test
+    fun `宽松 JSON 语法会被严格拒绝`() {
+        val nonStandardDocuments = listOf(
+            """{/* 注释 */"a":1}""",
+            """{'a':1}""",
+            """{a:1}""",
+            """{"a":1,}""",
+            """{"a":1}{"b":2}""",
+        )
+
+        nonStandardDocuments.forEach { document ->
+            assertThrows("应拒绝：$document", FrameProtocolException::class.java) {
+                runSuspend { codec.readFrame(MemoryChannel(frame(document))) }
+            }
+        }
+    }
+
+    @Test
     fun `非对象 JSON 会被拒绝`() {
         val channel = MemoryChannel(frame("[]"))
 

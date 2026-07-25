@@ -4,8 +4,12 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
+import com.google.gson.Strictness
+import com.google.gson.stream.JsonReader
+import com.google.gson.stream.JsonToken
 import java.io.EOFException
 import java.io.IOException
+import java.io.StringReader
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.CharacterCodingException
@@ -65,9 +69,18 @@ class LengthPrefixedJsonCodec(
         }
 
         val element = try {
-            JsonParser.parseString(jsonText)
+            val reader = JsonReader(StringReader(jsonText)).apply {
+                strictness = Strictness.STRICT
+            }
+            val parsed = JsonParser.parseReader(reader)
+            if (reader.peek() != JsonToken.END_DOCUMENT) {
+                throw JsonParseException("JSON 文档包含尾随内容")
+            }
+            parsed
         } catch (exception: JsonParseException) {
             throw FrameProtocolException("帧载荷不是合法 JSON", exception)
+        } catch (exception: IOException) {
+            throw FrameProtocolException("读取 JSON 帧载荷失败", exception)
         }
         if (!element.isJsonObject) {
             throw FrameProtocolException("帧载荷必须是 JSON 对象")
