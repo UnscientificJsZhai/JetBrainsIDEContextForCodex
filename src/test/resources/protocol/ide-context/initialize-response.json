@@ -1,0 +1,10 @@
+{
+  "type": "response",
+  "requestId": "00000000-0000-4000-8000-000000000002",
+  "resultType": "success",
+  "method": "initialize",
+  "handledByClientId": "provider-client-1",
+  "result": {
+    "clientId": "provider-client-1"
+  }
+}

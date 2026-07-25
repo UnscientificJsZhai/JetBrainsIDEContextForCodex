@@ -1,0 +1,10 @@
+{
+  "type": "request",
+  "requestId": "00000000-0000-4000-8000-000000000001",
+  "sourceClientId": "codex-tui",
+  "version": 0,
+  "method": "ide-context",
+  "params": {
+    "workspaceRoot": "/workspace/repository"
+  }
+}
