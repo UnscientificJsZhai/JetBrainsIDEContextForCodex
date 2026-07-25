@@ -1,19 +1,13 @@
-<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
     <id>com.github.unscientificjszhai.codexjetbrainsideplugin</id>
-    <name>CodexunscientificjszhaiIDEPlugin</name>
+    <name>Codex IDE Context</name>
     <vendor>unscientificjszhai</vendor>
     <description><![CDATA[
-        <p><b>CodexunscientificjszhaiIDEPlugin</b> is a repository that provides a pure template to make it easier to create a new plugin project.</p>
-        <p>The main goal of this template is to speed up the setup phase of plugin development for both new and experienced developers by preconfiguring the project scaffold and CI, linking to the proper documentation pages, and keeping everything organized.</p>
+        Codex IDE Context provides editor context to Codex in JetBrains IDEs.
+        <p>插件为 Codex 提供当前 JetBrains IDE 中的活动文件、选区和已打开标签页上下文。</p>
+        <p>插件仅在收到请求时读取必要的编辑器状态，不自动保存文件，也不采集环境变量、终端内容、运行配置、诊断或版本控制信息。</p>
+        <p>当前版本仍处于开发阶段；只有完成对应平台的真实 Codex 端到端验证后，才会声明该平台受支持。</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
-
-    <resource-bundle>messages.MyBundle</resource-bundle>
-
-    <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.github.unscientificjszhai.codexjetbrainsideplugin.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
-        <postStartupActivity implementation="com.github.unscientificjszhai.codexjetbrainsideplugin.startup.MyProjectActivity" />
-    </extensions>
 </idea-plugin>
