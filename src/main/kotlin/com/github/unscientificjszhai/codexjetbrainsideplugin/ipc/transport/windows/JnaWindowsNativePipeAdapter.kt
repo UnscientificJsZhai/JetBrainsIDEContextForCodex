@@ -5,29 +5,13 @@ import com.sun.jna.Memory
 import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.WString
-import com.sun.jna.platform.win32.Advapi32
-import com.sun.jna.platform.win32.Kernel32
-import com.sun.jna.platform.win32.WinBase
-import com.sun.jna.platform.win32.WinDef
+import com.sun.jna.platform.win32.*
 import com.sun.jna.platform.win32.WinDef.ULONGByReference
-import com.sun.jna.platform.win32.WinError
-import com.sun.jna.platform.win32.WinNT
 import com.sun.jna.ptr.IntByReference
 import com.sun.jna.ptr.PointerByReference
 import com.sun.jna.win32.StdCallLibrary
 import com.sun.jna.win32.W32APIOptions
-import kotlinx.coroutines.CancellableContinuation
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -87,12 +71,12 @@ class JnaWindowsNativePipeAdapter internal constructor(
                 write()
             }
             val openMode = PIPE_ACCESS_DUPLEX or WinNT.FILE_FLAG_OVERLAPPED or
-                if (firstInstance) FILE_FLAG_FIRST_PIPE_INSTANCE else 0
+                    if (firstInstance) FILE_FLAG_FIRST_PIPE_INSTANCE else 0
             val handle = kernel32.CreateNamedPipe(
                 pipeName,
                 openMode,
                 PIPE_TYPE_BYTE or PIPE_READMODE_BYTE or PIPE_WAIT or
-                    PIPE_REJECT_REMOTE_CLIENTS,
+                        PIPE_REJECT_REMOTE_CLIENTS,
                 MAX_NATIVE_INSTANCES,
                 PIPE_BUFFER_BYTES,
                 PIPE_BUFFER_BYTES,
@@ -103,7 +87,7 @@ class JnaWindowsNativePipeAdapter internal constructor(
                 return when (val error = kernel32.GetLastError()) {
                     WinError.ERROR_ACCESS_DENIED,
                     WinError.ERROR_PIPE_BUSY,
-                    -> WindowsServerCreateResult.Conflict
+                        -> WindowsServerCreateResult.Conflict
 
                     else -> throw WindowsNativeIOException("CreateNamedPipeW", error)
                 }
@@ -674,7 +658,7 @@ class JnaWindowsNativePipeAdapter internal constructor(
 
     private fun isInvalid(handle: WinNT.HANDLE?): Boolean =
         handle == null || handle == WinBase.INVALID_HANDLE_VALUE ||
-            handle.pointer == null || Pointer.nativeValue(handle.pointer) == 0L
+                handle.pointer == null || Pointer.nativeValue(handle.pointer) == 0L
 
     private data class ProcessSid(val bytes: ByteArray, val text: String)
 

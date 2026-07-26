@@ -8,12 +8,7 @@ import com.github.unscientificjszhai.codexjetbrainsideplugin.settings.CodexSetti
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 
 /**
  * IDE Context IPC 的 application 级生命周期入口。

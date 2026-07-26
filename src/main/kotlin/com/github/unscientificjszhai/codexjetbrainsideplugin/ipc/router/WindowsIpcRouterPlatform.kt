@@ -3,14 +3,7 @@ package com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.router
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.IpcConstants
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.IpcConnection
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.IpcTransport
-import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.windows.JnaWindowsNativePipeAdapter
-import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.windows.WindowsClientOpenResult
-import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.windows.WindowsNamedPipeConnection
-import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.windows.WindowsNamedPipeTransport
-import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.windows.WindowsNativePipeAdapter
-import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.windows.WindowsPipeHandle
-import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.windows.WindowsPipePeer
-import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.windows.WindowsServerCreateResult
+import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.windows.*
 import kotlinx.coroutines.CoroutineScope
 import java.io.IOException
 

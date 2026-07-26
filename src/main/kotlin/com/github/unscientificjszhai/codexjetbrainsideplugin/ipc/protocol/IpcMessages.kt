@@ -2,7 +2,7 @@ package com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol
 
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
-import java.util.UUID
+import java.util.*
 
 internal object IpcMessages {
     const val TYPE_REQUEST = "request"

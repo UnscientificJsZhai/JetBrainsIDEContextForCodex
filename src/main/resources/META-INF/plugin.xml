@@ -3,16 +3,15 @@
     <name>Codex IDE Context</name>
     <vendor>unscientificjszhai</vendor>
     <description><![CDATA[
-        Codex IDE Context provides editor context to Codex in JetBrains IDEs.
-        <p>插件为 Codex 提供当前 JetBrains IDE 中的活动文件、选区和已打开标签页上下文。</p>
-        <p>插件仅在收到请求时读取必要的编辑器状态，不自动保存文件，也不采集环境变量、终端内容、运行配置、诊断或版本控制信息。</p>
-        <p>当前版本仍处于开发阶段；只有完成对应平台的真实 Codex 端到端验证后，才会声明该平台受支持。</p>
+        Codex IDE Context gives Codex access to relevant editor context in JetBrains IDEs.
+        <p>When requested, it can provide the active file, selected text, and open editor tabs.</p>
+        <p>The plugin reads only the editor state needed for a request. It does not save files automatically or collect environment variables, terminal content, run configurations, diagnostics, or version-control data.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity
-            implementation="com.github.unscientificjszhai.codexjetbrainsideplugin.startup.CodexIdeContextStartupActivity"/>
+                implementation="com.github.unscientificjszhai.codexjetbrainsideplugin.startup.CodexIdeContextStartupActivity"/>
     </extensions>
 </idea-plugin>

@@ -7,7 +7,6 @@ import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.Unsaf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap

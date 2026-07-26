@@ -1,5 +1,6 @@
 package com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport
 
+import jdk.net.ExtendedSocketOptions
 import java.io.IOException
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
@@ -10,12 +11,7 @@ import java.nio.file.OpenOption
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption.CREATE
 import java.nio.file.StandardOpenOption.WRITE
-import java.nio.file.attribute.BasicFileAttributes
-import java.nio.file.attribute.PosixFilePermission
-import java.nio.file.attribute.PosixFileAttributeView
-import java.nio.file.attribute.PosixFilePermissions
-import java.nio.file.attribute.UserPrincipal
-import jdk.net.ExtendedSocketOptions
+import java.nio.file.attribute.*
 
 class UnsafeIpcEndpointException(message: String) : IOException(message)
 

@@ -41,6 +41,7 @@ class IpcEndpointResolver(
                 legacyDirectory.resolve("ipc.sock"),
                 legacyDirectory.resolve("ipc-0.sock"),
             )
+
             else -> listOf(legacyDirectory.resolve("ipc-$uid.sock"))
         }
 

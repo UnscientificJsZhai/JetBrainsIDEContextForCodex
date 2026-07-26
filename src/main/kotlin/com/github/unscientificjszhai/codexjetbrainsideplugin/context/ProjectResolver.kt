@@ -65,7 +65,7 @@ class ProjectResolver {
             if (projects.size != 1) {
                 LOG.warn(
                     "工作区项目解析存在歧义：候选项目数=${projects.size}，匹配类型=" +
-                        if (exact.isNotEmpty()) "exact" else "ancestor",
+                            if (exact.isNotEmpty()) "exact" else "ancestor",
                 )
                 return null
             }

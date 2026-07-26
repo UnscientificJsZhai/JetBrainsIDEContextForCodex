@@ -111,7 +111,7 @@ class CodexRouterClient(
                         IpcMessages.TYPE_BROADCAST,
                         IpcMessages.TYPE_RESPONSE,
                         IpcMessages.TYPE_DISCOVERY_RESPONSE,
-                        -> Unit
+                            -> Unit
 
                         else -> {
                             val requestId = message.string("requestId") ?: continue

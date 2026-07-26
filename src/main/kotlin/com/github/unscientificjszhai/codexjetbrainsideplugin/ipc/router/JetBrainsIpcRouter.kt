@@ -7,19 +7,12 @@ import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.string
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.IpcConnection
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.IpcTransport
 import com.google.gson.JsonObject
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.supervisorScope
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.EOFException
 import java.io.IOException
-import java.util.UUID
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
@@ -57,7 +50,7 @@ class JetBrainsIpcRouter(
                     connection.readMessage()
                 }
                 val isInitialize = message.string("type") == IpcMessages.TYPE_REQUEST &&
-                    message.string("method") == IpcMessages.METHOD_INITIALIZE
+                        message.string("method") == IpcMessages.METHOD_INITIALIZE
                 when (message.string("type")) {
                     IpcMessages.TYPE_REQUEST -> {
                         if (isInitialize) {
@@ -69,7 +62,7 @@ class JetBrainsIpcRouter(
 
                     IpcMessages.TYPE_RESPONSE,
                     IpcMessages.TYPE_DISCOVERY_RESPONSE,
-                    -> state.completePending(message)
+                        -> state.completePending(message)
 
                     IpcMessages.TYPE_BROADCAST -> Unit
                     else -> {
