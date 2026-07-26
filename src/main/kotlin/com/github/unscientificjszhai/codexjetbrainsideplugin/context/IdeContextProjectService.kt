@@ -1,6 +1,8 @@
 package com.github.unscientificjszhai.codexjetbrainsideplugin.context
 
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.IpcConstants
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Document
@@ -8,6 +10,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.TextRange
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -25,9 +28,13 @@ class IdeContextProjectService(
             canonicalizeAbsolutePath(workspaceRoot)
         } ?: return EMPTY_CONTEXT
 
-        // Platform 252 通过 Main dispatcher 调度到 EDT。
-        val rawSnapshot = withContext(Dispatchers.Main.immediate) {
+        val application = ApplicationManager.getApplication()
+        val rawSnapshot = if (application.isDispatchThread) {
             captureRawSnapshot()
+        } else {
+            withContext(Dispatchers.EDT) {
+                captureRawSnapshot()
+            }
         }
 
         return withContext(Dispatchers.IO) {
@@ -50,9 +57,14 @@ class IdeContextProjectService(
                 RawActiveEditor(
                     file = it,
                     selection = primaryCaret.toRawRange(currentEditor.document),
-                    selectedText = primaryCaret.selectedText,
-                    selections = currentEditor.caretModel.allCarets.map { caret ->
-                        caret.toRawRange(currentEditor.document)
+                    selectedText = primaryCaret.captureSelectedText(currentEditor.document),
+                    selections = buildList {
+                        add(primaryCaret.toRawRange(currentEditor.document))
+                        currentEditor.caretModel.allCarets.forEach { caret ->
+                            if (caret !== primaryCaret) {
+                                add(caret.toRawRange(currentEditor.document))
+                            }
+                        }
                     },
                 )
             }
@@ -65,9 +77,25 @@ class IdeContextProjectService(
     }
 
     private fun captureRawFile(file: com.intellij.openapi.vfs.VirtualFile): RawFile? {
-        if (!file.isValid || !file.isInLocalFileSystem) return null
+        if (!file.isValid || !file.isInLocalFileSystem || file.isDirectory) return null
         val path = runCatching { file.toNioPath() }.getOrNull() ?: return null
         return RawFile(file.name, path)
+    }
+
+    private fun Caret.captureSelectedText(document: Document): String? {
+        if (!hasSelection()) return null
+        val start = selectionStart.coerceIn(0, document.textLength)
+        val originalEnd = selectionEnd.coerceIn(start, document.textLength)
+        var end = minOf(originalEnd, start + IpcConstants.MAX_SELECTION_CHARS)
+        if (
+            end < originalEnd &&
+            end > start &&
+            Character.isHighSurrogate(document.charsSequence[end - 1]) &&
+            Character.isLowSurrogate(document.charsSequence[end])
+        ) {
+            end -= 1
+        }
+        return document.getText(TextRange(start, end))
     }
 
     private fun Caret.toRawRange(document: Document): IdeRange {

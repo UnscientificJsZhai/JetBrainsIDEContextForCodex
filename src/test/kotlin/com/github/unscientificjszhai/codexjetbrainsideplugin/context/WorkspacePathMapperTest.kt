@@ -43,6 +43,25 @@ class WorkspacePathMapperTest {
     }
 
     @Test
+    fun `拒绝 workspace 内目录与指向目录的 symlink`() {
+        val workspace = Files.createTempDirectory("codex-workspace-")
+        val directory = Files.createDirectories(workspace.resolve("src"))
+        assertNull(WorkspacePathMapper.toProtocolPath(directory, workspace))
+
+        val link = workspace.resolve("src-link")
+        try {
+            Files.createSymbolicLink(link, directory)
+        } catch (exception: UnsupportedOperationException) {
+            assumeNoException(exception)
+        } catch (exception: java.io.IOException) {
+            assumeNoException(exception)
+        } catch (exception: SecurityException) {
+            assumeNoException(exception)
+        }
+        assertNull(WorkspacePathMapper.toProtocolPath(link, workspace))
+    }
+
+    @Test
     fun `symlink 指向 workspace 外时拒绝`() {
         val workspace = Files.createTempDirectory("codex-workspace-")
         val outside = Files.createTempFile("codex-outside-", ".kt")

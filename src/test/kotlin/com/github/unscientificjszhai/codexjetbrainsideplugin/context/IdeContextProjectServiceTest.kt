@@ -5,10 +5,14 @@ import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.roots.ModuleRootModificationUtil
+import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.testFramework.DumbModeTestUtils
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.google.gson.Gson
+import com.google.gson.JsonParser
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.Path
@@ -51,11 +55,12 @@ class IdeContextProjectServiceTest : BasePlatformTestCase() {
         )
         assertEquals(
             listOf(
-                IdeRange(IdePosition(0, 0), IdePosition(0, 2)),
                 IdeRange(IdePosition(1, 0), IdePosition(1, 2)),
+                IdeRange(IdePosition(0, 0), IdePosition(0, 2)),
             ),
             activeFile.selections,
         )
+        assertEquals(activeFile.selection, activeFile.selections.first())
     }
 
     fun testNoSelectionUsesPrimaryCaretZeroLengthRange() {
@@ -139,6 +144,59 @@ class IdeContextProjectServiceTest : BasePlatformTestCase() {
         assertNotNull(insideResult)
         assertEquals(IpcConstants.MAX_SELECTION_CHARS, insideResult!!.length)
         assertTrue(Character.isLowSurrogate(insideResult.last()))
+    }
+
+    fun testRealLargeSelectionIsLimitedBeforeBuildingContext() {
+        val workspace = createWorkspace()
+        val editor = openLocalTextFile(workspace, "Large.kt", "placeholder")
+        val content = "a".repeat(IpcConstants.MAX_SELECTION_CHARS - 1) + "😀tail"
+        runWriteAction {
+            editor.document.setText(content)
+            editor.caretModel.primaryCaret.setSelection(0, content.length)
+        }
+
+        val activeFile = snapshot(workspace).activeFile
+
+        assertNotNull(activeFile)
+        assertEquals(IpcConstants.MAX_SELECTION_CHARS - 1, activeFile!!.activeSelectionContent?.length)
+        assertEquals(
+            IdePosition(0, content.length),
+            activeFile.selection.end,
+        )
+    }
+
+    fun testPublicResolverMatchesRealOpenProjectContentRoot() {
+        val contentRoot = createWorkspace()
+        val virtualContentRoot = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(contentRoot)
+        assertNotNull(virtualContentRoot)
+        ModuleRootModificationUtil.addContentRoot(module, virtualContentRoot!!)
+        assertTrue(
+            ProjectRootManager.getInstance(project).contentRoots.any { it == virtualContentRoot },
+        )
+
+        val resolved = ProjectResolver().resolve(contentRoot)
+
+        assertNotNull(resolved)
+        assertSame(project, resolved!!.project)
+        assertEquals(contentRoot.toRealPath(), resolved.workspaceRoot)
+    }
+
+    fun testSnapshotMatchesStaticSingleSelectionFixture() {
+        val workspace = createWorkspace()
+        val editor = openLocalTextFile(workspace, "src/Sample.kt", "示例")
+        editor.caretModel.primaryCaret.setSelection(0, 2)
+
+        val context = snapshot(workspace)
+        val fixture = javaClass.classLoader
+            .getResourceAsStream("protocol/ide-context/success-single-selection.json")
+            ?.bufferedReader()
+            ?.use { JsonParser.parseReader(it).asJsonObject }
+        assertNotNull(fixture)
+        val expected = fixture!!
+            .getAsJsonObject("result")
+            .getAsJsonObject("ideContext")
+
+        assertEquals(expected, Gson().toJsonTree(context))
     }
 
     fun testTabsAreDeduplicatedAndLimitedAfterFiltering() {
