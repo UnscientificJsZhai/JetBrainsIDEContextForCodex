@@ -6,7 +6,9 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.Project
@@ -47,8 +49,7 @@ class IdeContextProjectService(
         if (project.isDisposed) return RawSnapshot(null, emptyList())
 
         val editorManager = FileEditorManager.getInstance(project)
-        val focusedTextEditor = (editorManager.focusedEditor as? TextEditor)?.editor
-        val editor = focusedTextEditor ?: editorManager.selectedTextEditor
+        val editor = selectEditor(editorManager.focusedEditor, editorManager.selectedTextEditor)
         val activeEditor = editor?.let { currentEditor ->
             val file = FileDocumentManager.getInstance().getFile(currentEditor.document)
             val rawFile = file?.let(::captureRawFile)
@@ -109,6 +110,11 @@ class IdeContextProjectService(
 
     companion object {
         private val EMPTY_CONTEXT = IdeContext(activeFile = null, openTabs = emptyList())
+
+        internal fun selectEditor(
+            focusedEditor: FileEditor?,
+            selectedTextEditor: Editor?,
+        ): Editor? = (focusedEditor as? TextEditor)?.editor ?: selectedTextEditor
 
         internal fun buildContext(rawSnapshot: RawSnapshot, workspaceRoot: Path): IdeContext {
             val activeFile = rawSnapshot.activeEditor?.let { activeEditor ->

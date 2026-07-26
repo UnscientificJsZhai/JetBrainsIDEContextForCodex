@@ -1,25 +1,39 @@
 package com.github.unscientificjszhai.codexjetbrainsideplugin.context
 
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.IpcConstants
+import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.openapi.application.runWriteAction
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.testFramework.DumbModeTestUtils
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.google.gson.Gson
 import com.google.gson.JsonParser
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Comparator
 
 class IdeContextProjectServiceTest : BasePlatformTestCase() {
     private val temporaryDirectories = mutableListOf<Path>()
+    private val additionalProjects = mutableListOf<Project>()
 
     fun testNoEditorReturnsEmptyContext() {
         val workspace = createWorkspace()
@@ -116,6 +130,57 @@ class IdeContextProjectServiceTest : BasePlatformTestCase() {
         assertEquals(listOf("image.png"), context.openTabs.map(IdeFileDescriptor::path))
     }
 
+    fun testFocusedTextEditorWinsAndSelectedTextEditorIsFallback() {
+        val workspace = createWorkspace()
+        val firstEditor = openLocalTextFile(workspace, "First.kt", "first")
+        val firstFile = FileDocumentManager.getInstance().getFile(firstEditor.document)
+        assertNotNull(firstFile)
+        /*
+         * Headless TestEditorManager 不建立真实 UI focus，focusedEditor 始终为 null。这里从同一
+         * manager 取得真实 TextEditor，并把它放到 focusedEditor API 参数位验证优先级。
+         */
+        val firstTextEditor = FileEditorManager.getInstance(project).getSelectedEditor(firstFile!!)
+        assertTrue(firstTextEditor is TextEditor)
+
+        val selectedEditor = openLocalTextFile(workspace, "Second.kt", "second")
+
+        assertSame(
+            firstEditor,
+            IdeContextProjectService.selectEditor(firstTextEditor, selectedEditor),
+        )
+        assertSame(
+            selectedEditor,
+            IdeContextProjectService.selectEditor(null, selectedEditor),
+        )
+    }
+
+    fun testNonTextFocusedEditorFallsBackToRealSelectedTextEditor() {
+        val workspace = createWorkspace()
+        val selectedEditor = openLocalTextFile(workspace, "Selected.kt", "selected")
+        /*
+         * Headless TestEditorManager 会把二进制文件交给文本 provider，无法稳定创建图片等非文本
+         * editor。这里在 FileEditor/TextEditor 的公开 API 边界提供一个非 TextEditor 实例，
+         * 并用真实 platform Editor 验证与生产代码完全相同的 fallback 分支。
+         */
+        val nonTextEditor = Proxy.newProxyInstance(
+            FileEditor::class.java.classLoader,
+            arrayOf(FileEditor::class.java),
+        ) { _, method, _ ->
+            when (method.returnType) {
+                java.lang.Boolean.TYPE -> false
+                java.lang.Integer.TYPE -> 0
+                java.lang.Long.TYPE -> 0L
+                else -> null
+            }
+        } as FileEditor
+
+        assertSame(
+            selectedEditor,
+            IdeContextProjectService.selectEditor(nonTextEditor, selectedEditor),
+        )
+        assertNull(IdeContextProjectService.selectEditor(nonTextEditor, null))
+    }
+
     fun testSnapshotCompletesInDumbMode() {
         val workspace = createWorkspace()
         openLocalTextFile(workspace, "DumbMode.kt", "content")
@@ -126,6 +191,41 @@ class IdeContextProjectServiceTest : BasePlatformTestCase() {
         }
 
         assertEquals("DumbMode.kt", context.activeFile?.path)
+    }
+
+    fun testCancelledServiceScopeRejectsSnapshot() {
+        val workspace = createWorkspace()
+        val serviceScope = CoroutineScope(SupervisorJob())
+        val service = IdeContextProjectService(project, serviceScope)
+        serviceScope.cancel()
+
+        var cancellation: CancellationException? = null
+        try {
+            runBlocking {
+                service.snapshot(workspace)
+            }
+        } catch (exception: CancellationException) {
+            cancellation = exception
+        }
+
+        assertNotNull(cancellation)
+    }
+
+    fun testDisposedProjectReturnsEmptyContextWhenCallerScopeIsStillActive() {
+        val workspace = createWorkspace()
+        val disposedProject = createAdditionalProject(createWorkspace())
+        val serviceScope = CoroutineScope(SupervisorJob())
+        val service = IdeContextProjectService(disposedProject, serviceScope)
+        closeAdditionalProject(disposedProject)
+        assertTrue(disposedProject.isDisposed)
+
+        val context = runBlocking {
+            service.snapshot(workspace)
+        }
+
+        assertNull(context.activeFile)
+        assertEmpty(context.openTabs)
+        serviceScope.cancel()
     }
 
     fun testSelectionTruncationDoesNotSplitSurrogatePair() {
@@ -181,6 +281,43 @@ class IdeContextProjectServiceTest : BasePlatformTestCase() {
         assertEquals(contentRoot.toRealPath(), resolved.workspaceRoot)
     }
 
+    fun testPublicResolverRejectsAmbiguousRealOpenProjects() {
+        val sharedWorkspace = createWorkspace()
+        val virtualSharedWorkspace = LocalFileSystem.getInstance()
+            .refreshAndFindFileByNioFile(sharedWorkspace)
+        assertNotNull(virtualSharedWorkspace)
+        ModuleRootModificationUtil.addContentRoot(module, virtualSharedWorkspace!!)
+        val secondProject = createAdditionalProject(sharedWorkspace)
+        assertTrue(ProjectManager.getInstance().openProjects.any { it === project })
+        assertTrue(ProjectManager.getInstance().openProjects.any { it === secondProject })
+
+        assertNull(ProjectResolver().resolve(sharedWorkspace))
+    }
+
+    fun testPublicResolverCanonicalizesSymlinkWorkspaceRoot() {
+        val realWorkspace = createWorkspace()
+        val virtualWorkspace = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(realWorkspace)
+        assertNotNull(virtualWorkspace)
+        ModuleRootModificationUtil.addContentRoot(module, virtualWorkspace!!)
+        val linksDirectory = createWorkspace()
+        val workspaceLink = linksDirectory.resolve("linked-workspace")
+        try {
+            Files.createSymbolicLink(workspaceLink, realWorkspace)
+        } catch (exception: UnsupportedOperationException) {
+            org.junit.Assume.assumeNoException(exception)
+        } catch (exception: java.io.IOException) {
+            org.junit.Assume.assumeNoException(exception)
+        } catch (exception: SecurityException) {
+            org.junit.Assume.assumeNoException(exception)
+        }
+
+        val resolved = ProjectResolver().resolve(workspaceLink)
+
+        assertNotNull(resolved)
+        assertSame(project, resolved!!.project)
+        assertEquals(realWorkspace.toRealPath(), resolved.workspaceRoot)
+    }
+
     fun testSnapshotMatchesStaticSingleSelectionFixture() {
         val workspace = createWorkspace()
         val editor = openLocalTextFile(workspace, "src/Sample.kt", "示例")
@@ -189,6 +326,30 @@ class IdeContextProjectServiceTest : BasePlatformTestCase() {
         val context = snapshot(workspace)
         val fixture = javaClass.classLoader
             .getResourceAsStream("protocol/ide-context/success-single-selection.json")
+            ?.bufferedReader()
+            ?.use { JsonParser.parseReader(it).asJsonObject }
+        assertNotNull(fixture)
+        val expected = fixture!!
+            .getAsJsonObject("result")
+            .getAsJsonObject("ideContext")
+
+        assertEquals(expected, Gson().toJsonTree(context))
+    }
+
+    fun testSnapshotMatchesStaticMultiSelectionFixture() {
+        val workspace = createWorkspace()
+        openLocalTextFile(workspace, "src/Sample.kt", "示例")
+        val editor = openLocalTextFile(workspace, "src/Unicode.kt", "x\nA😀\nend")
+        runWriteAction {
+            editor.caretModel.primaryCaret.moveToOffset(6)
+            val primary = editor.caretModel.addCaret(editor.offsetToVisualPosition(3))
+            assertNotNull(primary)
+            primary!!.setSelection(3, 5)
+        }
+
+        val context = snapshot(workspace)
+        val fixture = javaClass.classLoader
+            .getResourceAsStream("protocol/ide-context/success-multi-selection.json")
             ?.bufferedReader()
             ?.use { JsonParser.parseReader(it).asJsonObject }
         assertNotNull(fixture)
@@ -233,6 +394,7 @@ class IdeContextProjectServiceTest : BasePlatformTestCase() {
     override fun tearDown() {
         try {
             closeAllFiles()
+            additionalProjects.toList().forEach(::closeAdditionalProject)
             temporaryDirectories.forEach(::deleteTemporaryDirectory)
         } finally {
             super.tearDown()
@@ -252,6 +414,33 @@ class IdeContextProjectServiceTest : BasePlatformTestCase() {
             workspace.toRealPath().toString(),
         )
         return workspace
+    }
+
+    private fun createAdditionalProject(projectPath: Path): Project {
+        val projectManager = ProjectManagerEx.getInstanceEx()
+        val openTask = OpenProjectTask.build()
+            .asNewProject()
+            .withForceOpenInNewFrame(true)
+        val additionalProject = projectManager.newProject(
+            projectPath,
+            openTask,
+        )
+        assertNotNull(additionalProject)
+        val openedProject = projectManager.openProject(
+            projectPath,
+            openTask.withProject(additionalProject!!),
+        )
+        assertNotNull(openedProject)
+        assertSame(additionalProject, openedProject)
+        additionalProjects.add(openedProject!!)
+        return openedProject
+    }
+
+    private fun closeAdditionalProject(additionalProject: Project) {
+        additionalProjects.remove(additionalProject)
+        if (!additionalProject.isDisposed) {
+            PlatformTestUtil.forceCloseProjectWithoutSaving(additionalProject)
+        }
     }
 
     private fun openLocalTextFile(
