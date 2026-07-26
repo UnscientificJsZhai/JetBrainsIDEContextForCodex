@@ -5,11 +5,9 @@ import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.IpcMes
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.int
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.string
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.IpcConnection
-import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.UnixDomainSocketTransport
-import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.UnixEndpointSecurity
+import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.IpcTransport
 import com.google.gson.JsonObject
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -21,7 +19,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.EOFException
 import java.io.IOException
-import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -33,11 +30,8 @@ import java.util.concurrent.atomic.AtomicLong
  * Router 不读取或缓存 IDE 内容，只负责 provider 注册、能力发现与请求/响应转发。
  */
 class JetBrainsIpcRouter(
-    endpoint: Path,
-    coroutineScope: CoroutineScope,
-    security: UnixEndpointSecurity = UnixEndpointSecurity(),
+    private val transport: IpcTransport,
 ) : AutoCloseable {
-    private val transport = UnixDomainSocketTransport(endpoint, coroutineScope, security)
     private val clients = CopyOnWriteArrayList<RouterClientState>()
     private val clientSequence = AtomicLong()
 
@@ -203,8 +197,7 @@ class JetBrainsIpcRouter(
     override fun close() {
         clients.toList().forEach(RouterClientState::disconnect)
         clients.clear()
-        // Router 实例不复用；永久关闭可阻止 coordinator close/start 竞态再次 bind。
-        transport.closePermanently()
+        transport.close()
     }
 
     private companion object {

@@ -160,16 +160,21 @@ class UnixDomainSocketTransportTest {
     }
 
     @Test
-    fun `关闭后可以在同一 transport 上重新监听`() = runBlocking {
+    fun `关闭后必须使用新 transport 实例重新监听`() = runBlocking {
         val endpoint = endpoint()
-        val transport = UnixDomainSocketTransport(endpoint, scope)
+        val first = UnixDomainSocketTransport(endpoint, scope)
 
-        transport.start { connection -> connection.readMessage() }
-        transport.close()
-        transport.start { connection -> connection.readMessage() }
+        first.start { connection -> connection.readMessage() }
+        first.close()
+        assertThrows(IOException::class.java) {
+            runBlocking { first.start { connection -> connection.readMessage() } }
+        }
+
+        val second = UnixDomainSocketTransport(endpoint, scope)
+        second.start { connection -> connection.readMessage() }
 
         UnixIpcConnection.connect(endpoint).close()
-        transport.close()
+        second.close()
         assertFalse(Files.exists(endpoint))
     }
 

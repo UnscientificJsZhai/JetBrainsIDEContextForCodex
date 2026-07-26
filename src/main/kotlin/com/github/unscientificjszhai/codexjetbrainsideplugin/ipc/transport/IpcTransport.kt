@@ -17,6 +17,7 @@ interface IpcTransport : AutoCloseable {
      * 启动监听并为每个连接调用一次处理器。
      *
      * 方法在 endpoint 已经成功监听后返回；连接处理始终在后台执行。
+     * [close] 是终态操作；需要重新监听时必须创建新的 transport 实例。
      */
     suspend fun start(handler: suspend (IpcConnection) -> Unit)
 }

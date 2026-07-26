@@ -5,12 +5,11 @@ import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.IpcCon
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.IpcMessages
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.obj
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.string
-import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.UnixIpcConnection
+import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.IpcConnection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import java.io.IOException
-import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -27,11 +26,13 @@ class CodexRouterClient(
         private set
 
     @Volatile
-    private var activeConnection: UnixIpcConnection? = null
+    private var activeConnection: IpcConnection? = null
 
-    suspend fun serve(endpoint: Path) {
-        if (closed.get()) return
-        val connection = UnixIpcConnection.connect(endpoint)
+    suspend fun serve(connection: IpcConnection) {
+        if (closed.get()) {
+            connection.close()
+            return
+        }
         val connectionPublished = synchronized(lifecycleLock) {
             if (closed.get()) {
                 false
@@ -144,7 +145,7 @@ class CodexRouterClient(
     }
 
     private suspend fun awaitInitializeResponse(
-        connection: UnixIpcConnection,
+        connection: IpcConnection,
         initializeId: String,
     ): String = try {
         withTimeout(IpcConstants.REQUEST_TIMEOUT_MS) {

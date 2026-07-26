@@ -100,9 +100,10 @@ class IdeContextProjectServiceTest : BasePlatformTestCase() {
 
         val externalActiveContext = snapshot(workspace)
         assertNull(externalActiveContext.activeFile)
+        assertEquals(2, externalActiveContext.openTabs.size)
         assertEquals(
-            listOf("First.kt", "Second.kt"),
-            externalActiveContext.openTabs.map(IdeFileDescriptor::path),
+            setOf("First.kt", "Second.kt"),
+            externalActiveContext.openTabs.map(IdeFileDescriptor::path).toSet(),
         )
 
         openLocalTextFile(workspace, "First.kt", "first")

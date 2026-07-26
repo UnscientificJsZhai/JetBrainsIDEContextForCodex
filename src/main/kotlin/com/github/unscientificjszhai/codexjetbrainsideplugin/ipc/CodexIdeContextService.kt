@@ -1,6 +1,9 @@
 package com.github.unscientificjszhai.codexjetbrainsideplugin.ipc
 
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.router.IpcRouterCoordinator
+import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.router.IpcRouterPlatform
+import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.router.UnixIpcRouterPlatform
+import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.router.WindowsIpcRouterPlatform
 import com.github.unscientificjszhai.codexjetbrainsideplugin.settings.CodexSettingsState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -30,19 +33,21 @@ class CodexIdeContextService(
     fun start() {
         val settings = service<CodexSettingsState>()
         if (!settings.enabled) return
-        if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
-            LOG.warn("当前版本尚未实现 Windows named pipe，IDE Context IPC 不会启动")
-            return
-        }
 
         synchronized(lifecycleLock) {
             if (serviceJob?.isActive == true) return
 
-            val endpoints = IpcEndpointResolver().resolve(settings.codexHomeOverride)
+            val platform = try {
+                createPlatform(settings)
+            } catch (exception: Throwable) {
+                LOG.warn(
+                    "Codex IDE Context IPC 平台初始化失败：${exception.javaClass.simpleName}",
+                )
+                return
+            }
             val newCoordinator = IpcRouterCoordinator(
-                endpoints = endpoints,
+                platform = platform,
                 provider = IdeContextRequestHandler(),
-                coroutineScope = coroutineScope,
             )
             coordinator = newCoordinator
             val job = coroutineScope.launch(start = CoroutineStart.LAZY) {
@@ -75,6 +80,16 @@ class CodexIdeContextService(
         }
         job?.cancelAndJoin()
     }
+
+    private fun createPlatform(settings: CodexSettingsState): IpcRouterPlatform =
+        if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
+            WindowsIpcRouterPlatform(coroutineScope)
+        } else {
+            UnixIpcRouterPlatform(
+                endpoints = IpcEndpointResolver().resolve(settings.codexHomeOverride),
+                coroutineScope = coroutineScope,
+            )
+        }
 
     companion object {
         private val LOG = Logger.getInstance(CodexIdeContextService::class.java)

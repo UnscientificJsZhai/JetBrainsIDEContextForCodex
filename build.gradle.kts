@@ -24,6 +24,7 @@ kotlin {
 
 dependencies {
     implementation("com.google.code.gson:gson:2.13.1")
+    implementation("net.java.dev.jna:jna-platform:5.17.0")
     testImplementation("junit:junit:4.13.2")
 
     intellijPlatform {

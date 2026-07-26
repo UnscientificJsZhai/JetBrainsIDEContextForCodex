@@ -176,6 +176,7 @@ class UnixDomainSocketTransport(
 
     override fun close() {
         synchronized(startCloseLock) {
+            permanentlyClosed.set(true)
             closeRequested.set(true)
         }
         runCatching { startingServer?.close() }
@@ -188,17 +189,6 @@ class UnixDomainSocketTransport(
         connections.clear()
         job?.cancel()
         cleanupOwnedEndpoint()
-    }
-
-    /**
-     * 永久关闭当前实例；与普通 close() 不同，后续 start() 不会重新监听。
-     */
-    fun closePermanently() {
-        synchronized(startCloseLock) {
-            permanentlyClosed.set(true)
-            closeRequested.set(true)
-        }
-        close()
     }
 
     suspend fun closeAndJoin() {

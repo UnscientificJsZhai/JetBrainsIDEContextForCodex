@@ -7,6 +7,7 @@ import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.IpcMes
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.obj
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.protocol.string
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.UnsafeIpcEndpointException
+import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.UnixDomainSocketTransport
 import com.github.unscientificjszhai.codexjetbrainsideplugin.ipc.transport.UnixIpcConnection
 import com.google.gson.JsonObject
 import kotlinx.coroutines.CompletableDeferred
@@ -60,10 +61,10 @@ class IpcRouterIntegrationTest {
     @Test
     fun `Router 发现 provider 后转发原始请求和响应`() = runBlocking {
         val endpoint = endpoint()
-        val router = JetBrainsIpcRouter(endpoint, scope)
+        val router = unixRouter(endpoint)
         router.start()
         jobs += scope.launch {
-            CodexRouterClient(FakeProvider(canHandle = true)).serve(endpoint)
+            CodexRouterClient(FakeProvider(canHandle = true)).serve(UnixIpcConnection.connect(endpoint))
         }
         awaitProviders(router, 1)
 
@@ -78,10 +79,10 @@ class IpcRouterIntegrationTest {
     @Test
     fun `没有 provider 声明 workspace 时返回 no-client-found`() = runBlocking {
         val endpoint = endpoint()
-        val router = JetBrainsIpcRouter(endpoint, scope)
+        val router = unixRouter(endpoint)
         router.start()
         jobs += scope.launch {
-            CodexRouterClient(FakeProvider(canHandle = false)).serve(endpoint)
+            CodexRouterClient(FakeProvider(canHandle = false)).serve(UnixIpcConnection.connect(endpoint))
         }
         awaitProviders(router, 1)
 
@@ -95,14 +96,16 @@ class IpcRouterIntegrationTest {
     @Test
     fun `Router 会继续发现后续能够处理 workspace 的 provider`() = runBlocking {
         val endpoint = endpoint()
-        val router = JetBrainsIpcRouter(endpoint, scope)
+        val router = unixRouter(endpoint)
         router.start()
         jobs += scope.launch {
-            CodexRouterClient(FakeProvider(canHandle = false, marker = "first")).serve(endpoint)
+            CodexRouterClient(FakeProvider(canHandle = false, marker = "first"))
+                .serve(UnixIpcConnection.connect(endpoint))
         }
         awaitProviders(router, 1)
         jobs += scope.launch {
-            CodexRouterClient(FakeProvider(canHandle = true, marker = "second")).serve(endpoint)
+            CodexRouterClient(FakeProvider(canHandle = true, marker = "second"))
+                .serve(UnixIpcConnection.connect(endpoint))
         }
         awaitProviders(router, 2)
 
@@ -116,14 +119,16 @@ class IpcRouterIntegrationTest {
     @Test
     fun `多个 provider 同时声明可处理时安全返回 no-client-found`() = runBlocking {
         val endpoint = endpoint()
-        val router = JetBrainsIpcRouter(endpoint, scope)
+        val router = unixRouter(endpoint)
         router.start()
         jobs += scope.launch {
-            CodexRouterClient(FakeProvider(canHandle = true, marker = "first")).serve(endpoint)
+            CodexRouterClient(FakeProvider(canHandle = true, marker = "first"))
+                .serve(UnixIpcConnection.connect(endpoint))
         }
         awaitProviders(router, 1)
         jobs += scope.launch {
-            CodexRouterClient(FakeProvider(canHandle = true, marker = "second")).serve(endpoint)
+            CodexRouterClient(FakeProvider(canHandle = true, marker = "second"))
+                .serve(UnixIpcConnection.connect(endpoint))
         }
         awaitProviders(router, 2)
 
@@ -137,16 +142,17 @@ class IpcRouterIntegrationTest {
     @Test
     fun `无响应候选不会阻塞健康 provider 到全局 deadline`() = runBlocking {
         val endpoint = endpoint()
-        val router = JetBrainsIpcRouter(endpoint, scope)
+        val router = unixRouter(endpoint)
         router.start()
         jobs += scope.launch {
             CodexRouterClient(
                 FakeProvider(canHandle = false, marker = "slow", discoveryDelayMs = 5_000),
-            ).serve(endpoint)
+            ).serve(UnixIpcConnection.connect(endpoint))
         }
         awaitProviders(router, 1)
         jobs += scope.launch {
-            CodexRouterClient(FakeProvider(canHandle = true, marker = "healthy")).serve(endpoint)
+            CodexRouterClient(FakeProvider(canHandle = true, marker = "healthy"))
+                .serve(UnixIpcConnection.connect(endpoint))
         }
         awaitProviders(router, 2)
 
@@ -163,7 +169,7 @@ class IpcRouterIntegrationTest {
     @Test
     fun `initialize 响应始终先于后续 discovery 帧`() = runBlocking {
         val endpoint = endpoint()
-        val router = JetBrainsIpcRouter(endpoint, scope)
+        val router = unixRouter(endpoint)
         router.start()
         UnixIpcConnection.connect(endpoint).use { providerConnection ->
             val initialize = IpcMessages.initializeRequest("initialize-order")
@@ -199,7 +205,7 @@ class IpcRouterIntegrationTest {
     @Test
     fun `Router 在发现前拒绝不兼容协议版本`() = runBlocking {
         val endpoint = endpoint()
-        val router = JetBrainsIpcRouter(endpoint, scope)
+        val router = unixRouter(endpoint)
         router.start()
 
         val response = sendIdeContextRequest(endpoint, version = 1)
@@ -218,11 +224,7 @@ class IpcRouterIntegrationTest {
             legacy = emptyList(),
             ownershipLock = endpoint.parent.resolve("jetbrains-router.lock"),
         )
-        val coordinator = IpcRouterCoordinator(
-            endpoints = endpoints,
-            provider = FakeProvider(canHandle = true),
-            coroutineScope = scope,
-        )
+        val coordinator = unixCoordinator(endpoints, FakeProvider(canHandle = true))
         jobs += scope.launch { coordinator.run() }
         withTimeout(3_000) {
             while (!Files.exists(endpoint) || !coordinator.isProviderConnected) delay(10)
@@ -241,7 +243,7 @@ class IpcRouterIntegrationTest {
     @Test
     fun `Coordinator 优先连接已有 Router 而不替换 endpoint`() = runBlocking {
         val endpoint = endpoint()
-        val router = JetBrainsIpcRouter(endpoint, scope)
+        val router = unixRouter(endpoint)
         router.start()
         val originalFileKey = Files.readAttributes(
             endpoint,
@@ -253,11 +255,7 @@ class IpcRouterIntegrationTest {
             legacy = emptyList(),
             ownershipLock = endpoint.parent.resolve("jetbrains-router.lock"),
         )
-        val coordinator = IpcRouterCoordinator(
-            endpoints = endpoints,
-            provider = FakeProvider(canHandle = true),
-            coroutineScope = scope,
-        )
+        val coordinator = unixCoordinator(endpoints, FakeProvider(canHandle = true))
         jobs += scope.launch { coordinator.run() }
         withTimeout(3_000) {
             while (router.registeredClientCount == 0) delay(10)
@@ -277,9 +275,40 @@ class IpcRouterIntegrationTest {
     }
 
     @Test
+    fun `Coordinator 跳过不可信 legacy 并继续竞选安全 primary`() = runBlocking {
+        val endpoint = endpoint()
+        val legacy = endpoint.parent.resolve("legacy.sock")
+        Files.createDirectories(endpoint.parent)
+        Files.setPosixFilePermissions(
+            endpoint.parent,
+            PosixFilePermissions.fromString("rwx------"),
+        )
+        Files.writeString(legacy, "不是 socket")
+        Files.setPosixFilePermissions(
+            legacy,
+            PosixFilePermissions.fromString("rw-------"),
+        )
+        val endpoints = IpcEndpoints(
+            codexHome = endpoint.parent.parent,
+            primary = endpoint,
+            legacy = listOf(legacy),
+            ownershipLock = endpoint.parent.resolve("jetbrains-router.lock"),
+        )
+        val coordinator = unixCoordinator(endpoints, FakeProvider(canHandle = true))
+        jobs += scope.launch { coordinator.run() }
+        withTimeout(3_000) {
+            while (!coordinator.isProviderConnected) delay(10)
+        }
+
+        assertEquals("success", sendIdeContextRequest(endpoint).string("resultType"))
+        assertTrue(Files.isRegularFile(legacy))
+        coordinator.close()
+    }
+
+    @Test
     fun `Coordinator 关闭时主动注销已有 Router 上的 provider`() = runBlocking {
         val endpoint = endpoint()
-        val router = JetBrainsIpcRouter(endpoint, scope)
+        val router = unixRouter(endpoint)
         router.start()
         val endpoints = IpcEndpoints(
             codexHome = endpoint.parent.parent,
@@ -287,11 +316,7 @@ class IpcRouterIntegrationTest {
             legacy = emptyList(),
             ownershipLock = endpoint.parent.resolve("jetbrains-router.lock"),
         )
-        val coordinator = IpcRouterCoordinator(
-            endpoints = endpoints,
-            provider = FakeProvider(canHandle = true),
-            coroutineScope = scope,
-        )
+        val coordinator = unixCoordinator(endpoints, FakeProvider(canHandle = true))
         val coordinatorJob = scope.launch { coordinator.run() }
         jobs += coordinatorJob
         awaitProviders(router, 1)
@@ -321,11 +346,7 @@ class IpcRouterIntegrationTest {
             legacy = emptyList(),
             ownershipLock = endpoint.parent.resolve("jetbrains-router.lock"),
         )
-        val coordinator = IpcRouterCoordinator(
-            endpoints = endpoints,
-            provider = FakeProvider(canHandle = true),
-            coroutineScope = scope,
-        )
+        val coordinator = unixCoordinator(endpoints, FakeProvider(canHandle = true))
         jobs += scope.launch { coordinator.run() }
         withTimeout(3_000) {
             while (!coordinator.isProviderConnected) delay(10)
@@ -348,10 +369,9 @@ class IpcRouterIntegrationTest {
             legacy = emptyList(),
             ownershipLock = endpoint.parent.resolve("jetbrains-router.lock"),
         )
-        val coordinator = IpcRouterCoordinator(
+        val coordinator = unixCoordinator(
             endpoints = endpoints,
             provider = FakeProvider(canHandle = true),
-            coroutineScope = scope,
             endpointProbe = { throw UnsafeIpcEndpointException("模拟 peer credential 失败") },
         )
         jobs += scope.launch { coordinator.run() }
@@ -384,10 +404,9 @@ class IpcRouterIntegrationTest {
         )
         val probeEntered = CompletableDeferred<Unit>()
         val releaseProbe = CompletableDeferred<Unit>()
-        val coordinator = IpcRouterCoordinator(
+        val coordinator = unixCoordinator(
             endpoints = endpoints,
             provider = FakeProvider(canHandle = true),
-            coroutineScope = scope,
             endpointProbe = {
                 probeEntered.complete(Unit)
                 releaseProbe.await()
@@ -413,6 +432,45 @@ class IpcRouterIntegrationTest {
     }
 
     @Test
+    fun `平台关闭会立即释放 stale 探测期间的 ownership lock`() = runBlocking {
+        val endpoint = createStaleSocket()
+        val endpoints = IpcEndpoints(
+            codexHome = endpoint.parent.parent,
+            primary = endpoint,
+            legacy = emptyList(),
+            ownershipLock = endpoint.parent.resolve("jetbrains-router.lock"),
+        )
+        val probeEntered = CompletableDeferred<Unit>()
+        val releaseProbe = CompletableDeferred<Unit>()
+        val stalledPlatform = UnixIpcRouterPlatform(
+            endpoints = endpoints,
+            coroutineScope = scope,
+            endpointProbe = {
+                probeEntered.complete(Unit)
+                releaseProbe.await()
+                throw ConnectException("模拟 connection refused")
+            },
+        )
+        val stalledAcquisition = async { stalledPlatform.tryAcquireOwner() }
+        withTimeout(3_000) { probeEntered.await() }
+
+        stalledPlatform.close()
+        val followerPlatform = UnixIpcRouterPlatform(
+            endpoints = endpoints,
+            coroutineScope = scope,
+            endpointProbe = { throw ConnectException("模拟 connection refused") },
+        )
+        val followerSession = withTimeout(3_000) {
+            checkNotNull(followerPlatform.tryAcquireOwner())
+        }
+
+        followerSession.close()
+        followerPlatform.close()
+        releaseProbe.complete(Unit)
+        assertEquals(null, withTimeout(3_000) { stalledAcquisition.await() })
+    }
+
+    @Test
     fun `owner 退出后 follower 会接管 Router`() = runBlocking {
         val endpoint = endpoint()
         val endpoints = IpcEndpoints(
@@ -421,10 +479,9 @@ class IpcRouterIntegrationTest {
             legacy = emptyList(),
             ownershipLock = endpoint.parent.resolve("jetbrains-router.lock"),
         )
-        val owner = IpcRouterCoordinator(
-            endpoints = endpoints,
-            provider = FakeProvider(canHandle = true, marker = "owner"),
-            coroutineScope = scope,
+        val owner = unixCoordinator(
+            endpoints,
+            FakeProvider(canHandle = true, marker = "owner"),
         )
         jobs += scope.launch { owner.run() }
         withTimeout(3_000) {
@@ -435,10 +492,9 @@ class IpcRouterIntegrationTest {
             java.nio.file.attribute.BasicFileAttributes::class.java,
         ).fileKey()
 
-        val follower = IpcRouterCoordinator(
-            endpoints = endpoints,
-            provider = FakeProvider(canHandle = true, marker = "follower"),
-            coroutineScope = scope,
+        val follower = unixCoordinator(
+            endpoints,
+            FakeProvider(canHandle = true, marker = "follower"),
         )
         jobs += scope.launch { follower.run() }
         withTimeout(3_000) {
@@ -468,10 +524,10 @@ class IpcRouterIntegrationTest {
     @Test
     fun `TUI 一次性连接处理一个请求后关闭`() = runBlocking {
         val endpoint = endpoint()
-        val router = JetBrainsIpcRouter(endpoint, scope)
+        val router = unixRouter(endpoint)
         router.start()
         jobs += scope.launch {
-            CodexRouterClient(FakeProvider(canHandle = true)).serve(endpoint)
+            CodexRouterClient(FakeProvider(canHandle = true)).serve(UnixIpcConnection.connect(endpoint))
         }
         awaitProviders(router, 1)
 
@@ -521,6 +577,22 @@ class IpcRouterIntegrationTest {
         withTimeout(3_000) {
             while (router.registeredClientCount != count) delay(10)
         }
+    }
+
+    private fun unixRouter(endpoint: Path): JetBrainsIpcRouter =
+        JetBrainsIpcRouter(UnixDomainSocketTransport(endpoint, scope))
+
+    private fun unixCoordinator(
+        endpoints: IpcEndpoints,
+        provider: IdeContextProvider,
+        endpointProbe: (suspend (Path) -> Unit)? = null,
+    ): IpcRouterCoordinator {
+        val platform = if (endpointProbe == null) {
+            UnixIpcRouterPlatform(endpoints, scope)
+        } else {
+            UnixIpcRouterPlatform(endpoints, scope, endpointProbe = endpointProbe)
+        }
+        return IpcRouterCoordinator(platform, provider)
     }
 
     private fun endpoint(): Path =
