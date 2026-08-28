@@ -6,8 +6,9 @@ import java.nio.ByteBuffer
 /**
  * 可由纯 JVM 单元测试替换的 Windows named-pipe native 边界。
  *
- * 生产实现负责 overlapped operation、deadline、取消、SID/DACL 和 native handle 收尾；
- * transport 只管理 Router 连接生命周期。
+ * 生产实现负责 overlapped operation、deadline、取消、SID/DACL 和 native handle 收尾；客户端
+ * 连接固定使用 identification-level SQOS，且不向上层暴露可提升冒充级别的配置。transport
+ * 只管理 Router 连接生命周期，并在连接成功后继续要求双方执行 PID/SID 校验。
  */
 interface WindowsNativePipeAdapter : AutoCloseable {
     fun createServer(

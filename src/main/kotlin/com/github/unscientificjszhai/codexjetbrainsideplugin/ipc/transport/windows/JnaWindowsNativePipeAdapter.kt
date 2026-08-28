@@ -23,6 +23,10 @@ import kotlin.coroutines.resumeWithException
 /**
  * Windows named-pipe 的唯一 JNA 实现。
  *
+ * 客户端固定以 identification-level SQOS 打开 pipe，防止 Router 冒充 JetBrains
+ * 进程令牌；服务端固定使用当前用户 DACL。连接成功后双方仍须分别校验对端 PID/SID，
+ * SQOS 不能替代身份校验。
+ *
  * 每个 overlapped operation 只有 waiter 可以 drain、关闭 event 和完成 continuation；
  * cancellation callback 只置位并调用 CancelIoEx。
  */
@@ -131,7 +135,7 @@ class JnaWindowsNativePipeAdapter internal constructor(
                     0,
                     null,
                     WinNT.OPEN_EXISTING,
-                    WinNT.FILE_FLAG_OVERLAPPED,
+                    CLIENT_OPEN_FLAGS,
                     null,
                 )
                 if (!isInvalid(handle)) {
@@ -698,6 +702,10 @@ class JnaWindowsNativePipeAdapter internal constructor(
         const val WINDOWS_PIPE_NAME = """\\.\pipe\codex-ipc"""
         private const val PIPE_ACCESS_DUPLEX = 0x00000003
         private const val FILE_FLAG_FIRST_PIPE_INSTANCE = 0x00080000
+        private const val SECURITY_IDENTIFICATION = 0x00010000
+        private const val SECURITY_SQOS_PRESENT = 0x00100000
+        private const val CLIENT_OPEN_FLAGS =
+            WinNT.FILE_FLAG_OVERLAPPED or SECURITY_SQOS_PRESENT or SECURITY_IDENTIFICATION
         private const val PIPE_TYPE_BYTE = 0x00000000
         private const val PIPE_READMODE_BYTE = 0x00000000
         private const val PIPE_WAIT = 0x00000000

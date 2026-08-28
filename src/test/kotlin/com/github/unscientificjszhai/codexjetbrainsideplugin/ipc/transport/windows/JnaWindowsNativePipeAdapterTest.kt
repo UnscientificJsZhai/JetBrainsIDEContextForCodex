@@ -12,11 +12,13 @@ import com.sun.jna.platform.win32.WinNT
 import com.sun.jna.ptr.IntByReference
 import com.sun.jna.ptr.PointerByReference
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -27,6 +29,7 @@ import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
 import java.nio.ByteBuffer
 import java.util.Collections
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -147,8 +150,72 @@ class JnaWindowsNativePipeAdapterTest {
     }
 
     @Test
+    fun `CreateFile client 始终使用 identification level SQOS`() = runBlocking {
+        val native = FakeJnaNative(
+            createFileErrors = ArrayDeque(listOf(WinError.ERROR_PIPE_BUSY)),
+            waitNamedPipeSucceeds = true,
+        )
+        val adapter = native.adapter()
+
+        val result = adapter.openClient(100)
+
+        assertTrue(result is WindowsClientOpenResult.Connected)
+        assertEquals(2, native.createFileFlags.size)
+        native.createFileFlags.forEach { flags ->
+            assertEquals(0x40110000, flags)
+            assertTrue(flags and 0x40000000 != 0)
+            assertTrue(flags and 0x00100000 != 0)
+            assertEquals(0x00010000, flags and 0x00030000)
+        }
+        (result as WindowsClientOpenResult.Connected).handle.close()
+        adapter.close()
+    }
+
+    @Test
+    fun `Windows native 接受 identification level SQOS 并完成双方校验`() {
+        assumeTrue(
+            "仅在 Windows 上执行真实 named-pipe 冒烟测试",
+            System.getProperty("os.name").startsWith("Windows", ignoreCase = true),
+        )
+
+        runBlocking {
+            withTimeout(2_000) {
+                val pipeName = """\\.\pipe\codex-ipc-sqos-${UUID.randomUUID()}"""
+                val adapter = JnaWindowsNativePipeAdapter(pipeName = pipeName)
+                try {
+                    val serverResult = adapter.createServer(firstInstance = true)
+                    val serverHandle = (serverResult as? WindowsServerCreateResult.Created)?.handle
+                        ?: error("无法创建独立的 Windows named-pipe server")
+                    try {
+                        val acceptJob = async {
+                            adapter.awaitClient(serverHandle, 1_500)
+                            adapter.verifyPeer(serverHandle, WindowsPipePeer.CLIENT)
+                        }
+                        val clientResult = adapter.openClient(1_500)
+                        val clientHandle = (clientResult as? WindowsClientOpenResult.Connected)?.handle
+                            ?: error("无法连接独立的 Windows named-pipe server")
+                        try {
+                            adapter.verifyPeer(clientHandle, WindowsPipePeer.SERVER)
+                            acceptJob.await()
+                        } finally {
+                            clientHandle.close()
+                        }
+                    } finally {
+                        adapter.disconnectServer(serverHandle)
+                        serverHandle.close()
+                    }
+                } finally {
+                    adapter.close()
+                }
+            }
+        }
+    }
+
+    @Test
     fun `CreateFile access denied 映射为安全拒绝`() {
-        val native = FakeJnaNative(createFileError = WinError.ERROR_ACCESS_DENIED)
+        val native = FakeJnaNative(
+            createFileErrors = ArrayDeque(listOf(WinError.ERROR_ACCESS_DENIED)),
+        )
         val adapter = native.adapter()
 
         assertThrows(UnsafeIpcEndpointException::class.java) {
@@ -263,10 +330,12 @@ private class FakeJnaNative(
     private val waitForCancellation: Boolean = false,
     private val overlappedError: Int = 0,
     private val synchronousReadBytes: ByteArray? = null,
-    private val createFileError: Int? = null,
+    private val createFileErrors: ArrayDeque<Int> = ArrayDeque(),
+    private val waitNamedPipeSucceeds: Boolean = false,
     private val synchronousWrite: Boolean = false,
 ) {
     val operations: MutableList<String> = Collections.synchronizedList(mutableListOf())
+    val createFileFlags: MutableList<Int> = Collections.synchronizedList(mutableListOf())
     val readStarted = CountDownLatch(1)
     var securityDescriptor: String? = null
     var writtenBytes: ByteArray? = null
@@ -293,11 +362,14 @@ private class FakeJnaNative(
 
     private fun invokeKernel32(method: java.lang.reflect.Method, arguments: Array<out Any?>): Any? =
         when (method.name) {
-            "CreateFile" -> if (createFileError == null) {
-                pipeHandle
-            } else {
-                lastError.set(createFileError)
-                WinBase.INVALID_HANDLE_VALUE
+            "CreateFile" -> {
+                createFileFlags += arguments[5] as Int
+                if (createFileErrors.isEmpty()) {
+                    pipeHandle
+                } else {
+                    lastError.set(createFileErrors.removeFirst())
+                    WinBase.INVALID_HANDLE_VALUE
+                }
             }
 
             "CreateNamedPipe" -> {
@@ -311,6 +383,7 @@ private class FakeJnaNative(
 
             "CreateEvent" -> eventHandle
             "GetLastError" -> lastError.get()
+            "WaitNamedPipe" -> waitNamedPipeSucceeds
             "WaitForSingleObject" -> {
                 val timeout = arguments[1] as Int
                 operations += "wait:$timeout"

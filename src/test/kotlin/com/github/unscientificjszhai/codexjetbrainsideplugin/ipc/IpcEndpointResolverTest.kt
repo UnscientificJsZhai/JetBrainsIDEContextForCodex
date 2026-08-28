@@ -59,6 +59,38 @@ class IpcEndpointResolverTest {
     }
 
     @Test
+    fun `候选端点始终按 primary 到 legacy 排序`() {
+        val regularUserEndpoints = IpcEndpointResolver(
+            environment = emptyMap(),
+            userHome = Path.of("/users/tester"),
+            tempDirectory = Path.of("/tmp/process"),
+            uidProvider = { 501L },
+        ).resolve("/codex/home")
+        val rootEndpoints = IpcEndpointResolver(
+            environment = emptyMap(),
+            userHome = Path.of("/users/root"),
+            tempDirectory = Path.of("/tmp/process"),
+            uidProvider = { 0L },
+        ).resolve("/codex/home")
+
+        assertEquals(
+            listOf(
+                Path.of("/codex/home/ipc/ipc.sock"),
+                Path.of("/tmp/process/codex-ipc/ipc-501.sock"),
+            ),
+            regularUserEndpoints.candidates,
+        )
+        assertEquals(
+            listOf(
+                Path.of("/codex/home/ipc/ipc.sock"),
+                Path.of("/tmp/process/codex-ipc/ipc.sock"),
+                Path.of("/tmp/process/codex-ipc/ipc-0.sock"),
+            ),
+            rootEndpoints.candidates,
+        )
+    }
+
+    @Test
     fun `无法确认 uid 时不猜测 legacy 地址`() {
         val resolver = IpcEndpointResolver(
             environment = emptyMap(),
