@@ -1,6 +1,6 @@
 <!-- Keep a Changelog guide -> https://keepachangelog.com -->
 
-# CodexJetBrainsIDEPlugin Changelog
+# IDEContextForCodex Changelog
 
 ## [Unreleased]
 ### Added

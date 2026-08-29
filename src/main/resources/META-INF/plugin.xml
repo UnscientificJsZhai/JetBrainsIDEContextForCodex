@@ -1,9 +1,9 @@
 <idea-plugin>
-    <id>com.github.unscientificjszhai.codexjetbrainsideplugin</id>
-    <name>Codex IDE Context</name>
+    <id>com.github.unscientificjszhai.idecontextforcodex</id>
+    <name>IDEContextForCodex</name>
     <vendor>unscientificjszhai</vendor>
     <description><![CDATA[
-        Codex IDE Context gives Codex access to relevant editor context in JetBrains IDEs.
+        IDEContextForCodex gives Codex access to relevant editor context in JetBrains IDEs.
         <p>When requested, it can provide the active file, selected text, and open editor tabs.</p>
         <p>The plugin reads only the editor state needed for a request. It does not save files automatically or collect environment variables, terminal content, run configurations, diagnostics, or version-control data.</p>
     ]]></description>
@@ -12,6 +12,6 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity
-                implementation="com.github.unscientificjszhai.codexjetbrainsideplugin.startup.CodexIdeContextStartupActivity"/>
+                implementation="com.github.unscientificjszhai.idecontextforcodex.startup.CodexIdeContextStartupActivity"/>
     </extensions>
 </idea-plugin>
